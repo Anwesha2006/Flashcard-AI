@@ -1,0 +1,120 @@
+import { useState } from 'react';
+import './App.css';
+
+type Page = 'home' | 'upload' | 'decks' | 'review' | 'login' | 'signup' | 'profile';
+
+const deckData = [
+  { title: 'Psychology 101', count: 24, color: 'violet', icon: '◌' },
+  { title: 'Spanish Vocabulary', count: 42, color: 'pink', icon: '◫' },
+  { title: 'Biology: Cells', count: 18, color: 'blue', icon: '✦' },
+];
+
+function App() {
+  const [page, setPage] = useState<Page>('home');
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const[file,setFile]= useState<File|null>(null);
+  const[extractedText,setExtractedText]=useState<string>('');
+  const go = (next: Page) => { setPage(next); setMenuOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  const authenticate = () => { setLoggedIn(true); go('decks'); };
+  const handleupload = async()=>{
+    if (!file) return;
+    const formdata= new FormData();
+    formdata.append('file',file);
+    const res=await fetch("http://localhost:8000/upload-pdf",{
+      method: "POST",
+      body: formdata
+    });
+    const data=await res.json();
+    setExtractedText(data.text_preview);
+  };
+  const nav = [
+    ['Home', 'home'], ['Upload', 'upload'], ['My Decks', 'decks'], ['Review', 'review'],
+  ] as [string, Page][];
+
+  return <div className="app-shell">
+    <header className="nav-wrap">
+      <button className="brand" onClick={() => go('home')} aria-label="Flashcard AI home"><span className="brand-mark">◌</span><span>FLASH<span>CARD</span></span></button>
+      <button className="menu-toggle" onClick={() => setMenuOpen(!menuOpen)} aria-label="Toggle menu">☰</button>
+      <nav className={menuOpen ? 'open' : ''}>
+        {nav.map(([label, target]) => <button key={target} className={page === target ? 'active' : ''} onClick={() => go(target)}>{label}</button>)}
+      </nav>
+      <div className="auth-actions">
+        {loggedIn ? <button className="profile-button" onClick={() => go('profile')}><span className="avatar">AM</span><span className="profile-name">Alex Morgan</span><span>⌄</span></button> : <>
+          <button className="login" onClick={() => go('login')}>Log in</button><button className="gradient-button compact" onClick={() => go('signup')}>Sign up</button>
+        </>}
+      </div>
+    </header>
+
+    {page === 'home' && <Home go={go} />}
+    {page === 'upload' && <Upload go={go} file={file} setFile={setFile} extractedText={extractedText} handleupload={handleupload} />}
+    {page === 'decks' && <Decks go={go} />}
+    {page === 'review' && <Review />}
+    {(page === 'login' || page === 'signup') && <Auth mode={page} onAuth={authenticate} go={go} />}
+    {page === 'profile' && <Profile onLogout={() => { setLoggedIn(false); go('home'); }} />}
+  </div>;
+}
+
+function Home({ go }: { go: (p: Page) => void }) {
+  return <>
+    <main className="hero">
+      <div className="hero-orb orb-one"/><div className="hero-orb orb-two"/><div className="hero-orb orb-three"/>
+      <div className="eyebrow">✦ &nbsp; Learn smarter, remember longer</div>
+      <h1>Turn anything into<br/><span>flashcards.</span> Instantly.</h1>
+      <p className="hero-copy">Upload your notes, slides, or a topic. Flashcard AI creates thoughtful cards that make studying feel effortless.</p>
+      <div className="hero-actions"><button className="gradient-button" onClick={() => go('signup')}>✦&nbsp; Create flashcards</button><button className="text-button" onClick={() => go('decks')}>Explore decks <span>→</span></button></div>
+      <div className="prompt-card"><div className="prompt-title">✧ <span>What would you like to study?</span></div><div className="prompt-bottom"><div className="prompt-chips"><span>⌁ Upload notes</span><span>✦ Create a topic</span></div><button className="gradient-button small" onClick={() => go('upload')}>Generate <span>→</span></button></div></div>
+      <div className="floating-cards"><article className="mini-card purple"><span>Psychology</span><strong>What is classical<br/>conditioning?</strong><i>24 cards</i></article><article className="mini-card peach"><span>Español</span><strong>¿Cómo estás?</strong><i>42 cards</i></article><article className="mini-card blue"><span>Biology</span><strong>What is the<br/>mitochondria?</strong><i>18 cards</i></article></div>
+    </main>
+    <section className="how-section"><div className="section-kicker">A simpler way to study</div><h2>From scattered notes to<br/><span>confident recall.</span></h2><div className="steps"><Step n="01" icon="↥" title="Add your material" text="Drop in a PDF, paste notes, or simply name a topic."/><Step n="02" icon="✦" title="Let AI do the work" text="Get focused, editable flashcards in moments."/><Step n="03" icon="◎" title="Learn your way" text="Review at your pace and watch your progress grow."/></div></section>
+    <Pricing go={go}/><Footer go={go}/>
+  </>;
+}
+
+function Step({ n, icon, title, text }: {n:string;icon:string;title:string;text:string}) { return <article className="step"><span className="step-number">{n}</span><div className="step-icon">{icon}</div><h3>{title}</h3><p>{text}</p></article>; }
+
+function Pricing({ go }: { go: (p: Page) => void }) { return <section className="pricing" id="pricing"><div className="section-kicker">Simple pricing</div><h2>Start learning today.</h2><p className="section-copy">Choose a plan that fits the way you study.</p><div className="price-grid"><article className="price-card"><h3>Starter</h3><p>Everything you need to begin.</p><div className="price"><b>$0</b><span>/ month</span></div><button className="outline-button" onClick={() => go('signup')}>Get started free</button><ul><li>50 AI flashcards / month</li><li>3 active decks</li><li>Basic review mode</li></ul></article><article className="price-card featured"><span className="popular">Most popular</span><h3>Scholar</h3><p>For students who want more.</p><div className="price"><b>$8</b><span>/ month</span></div><button className="light-button" onClick={() => go('signup')}>Start free trial</button><ul><li>Unlimited AI flashcards</li><li>Unlimited decks</li><li>Smart spaced repetition</li></ul></article><article className="price-card"><h3>Pro</h3><p>For ambitious learners.</p><div className="price"><b>$14</b><span>/ month</span></div><button className="outline-button" onClick={() => go('signup')}>Get started</button><ul><li>Everything in Scholar</li><li>PDF & slide uploads</li><li>Priority AI generation</li></ul></article></div></section> }
+
+function Upload({ go, file, setFile, extractedText, handleupload }: {
+  go: (p: Page) => void;
+  file: File | null;
+  setFile: (f: File | null) => void;
+  extractedText: string;
+  handleupload: () => void;
+}) {
+  return <PageFrame eyebrow="CREATE A NEW DECK" title={<>Make flashcards from <span>anything.</span></>}>
+    <div className="upload-grid">
+      <section className="dropzone">
+        <div className="upload-symbol">↥</div>
+        <h3>Drop your study material here</h3>
+        <p>PDF, DOCX, PPTX, TXT up to 20 MB</p>
+
+        <input type="file" accept=".pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+        <button className="outline-button" onClick={handleupload}>Upload</button>
+        <p>{extractedText}</p>
+
+        <div className="or"><span/>or<span/></div>
+        <textarea placeholder="Paste your notes or type a topic to get started..."/>
+        <button className="gradient-button" onClick={() => go('decks')}>✦&nbsp; Generate flashcards</button>
+      </section>
+      <aside className="upload-aside">
+        <h3>How it works</h3>
+        <p><b>01</b> Upload a file or paste your notes.</p>
+        <p><b>02</b> Choose a deck title and difficulty.</p>
+        <p><b>03</b> Review, edit, and start learning.</p>
+      </aside>
+    </div>
+  </PageFrame>
+}
+function Decks({go}:{go:(p:Page)=>void}) { return <PageFrame eyebrow="YOUR LIBRARY" title={<>Your learning <span>space.</span></>}><div className="deck-toolbar"><p>3 decks · 84 cards ready to review</p><button className="gradient-button small" onClick={()=>go('upload')}>+ New deck</button></div><div className="deck-grid">{deckData.map(d=><article className={`deck-card ${d.color}`} key={d.title}><div className="deck-card-top"><span className="deck-icon">{d.icon}</span><button>•••</button></div><h3>{d.title}</h3><p>{d.count} flashcards</p><button onClick={()=>go('review')}>Study now <span>→</span></button></article>)}</div></PageFrame> }
+
+function Review() { const [flipped,setFlipped]=useState(false); return <PageFrame eyebrow="REVIEW MODE" title={<>Keep the answer <span>in mind.</span></>}><div className="review-meta"><span>Psychology 101</span><span>7 of 24</span></div><button className={'study-card '+(flipped?'flipped':'')} onClick={()=>setFlipped(!flipped)}><small>{flipped?'ANSWER':'QUESTION'}</small><strong>{flipped?'A learning process in which a neutral stimulus becomes associated with a meaningful stimulus.':'What is classical conditioning?'}</strong><em>Click the card to {flipped?'see question':'reveal answer'}</em></button><div className="review-actions"><button className="again">↻ Again</button><button className="hard">Hard</button><button className="good">✓ Good</button><button className="easy">✦ Easy</button></div></PageFrame> }
+
+function Auth({mode,onAuth,go}:{mode:'login'|'signup';onAuth:()=>void;go:(p:Page)=>void}) { const signup=mode==='signup'; return <main className="auth-page"><div className="auth-panel"><div className="eyebrow">✦ &nbsp; WELCOME TO FLASHCARD AI</div><h1>{signup?'Start learning smarter.':'Welcome back.'}</h1><p>{signup?'Create your free account and turn study time into progress.':'Pick up right where you left off.'}</p><form onSubmit={e=>{e.preventDefault();onAuth();}}>{signup&&<label>Full name<input placeholder="Alex Morgan"/></label>}<label>Email<input type="email" placeholder="you@example.com"/></label><label>Password<input type="password" placeholder="••••••••"/></label><button className="gradient-button" type="submit">{signup?'Create free account':'Log in'} <span>→</span></button></form><p className="switch-auth">{signup?'Already have an account?':'New to Flashcard AI?'} <button onClick={()=>go(signup?'login':'signup')}>{signup?'Log in':'Sign up free'}</button></p></div></main> }
+
+function Profile({onLogout}:{onLogout:()=>void}) { return <PageFrame eyebrow="YOUR PROFILE" title={<>Hello, <span>Alex.</span></>}><div className="profile-layout"><section className="profile-card"><div className="large-avatar">AM</div><h2>Alex Morgan</h2><p>alex@example.com</p><hr/><div><b>Scholar plan</b><span>Active</span></div><button className="outline-button" onClick={onLogout}>Log out</button></section><section className="stats"><article><b>84</b><span>Cards created</span></article><article><b>12</b><span>Day streak</span></article><article><b>6.4h</b><span>Study time</span></article></section></div></PageFrame> }
+
+function PageFrame({eyebrow,title,children}:{eyebrow:string;title:React.ReactNode;children:React.ReactNode}) { return <main className="inner-page"><div className="page-heading"><div className="section-kicker">{eyebrow}</div><h1>{title}</h1></div>{children}</main> }
+function Footer({go}:{go:(p:Page)=>void}) { return <footer><div className="footer-brand"><button className="brand" onClick={()=>go('home')}><span className="brand-mark">◌</span><span>FLASH<span>CARD</span></span></button><p>Thoughtful tools for curious minds.</p></div><div><h4>Product</h4><button onClick={()=>go('upload')}>Create cards</button><button onClick={()=>go('decks')}>My decks</button><button onClick={()=>go('review')}>Review</button></div><div><h4>Company</h4><button>About</button><button>Contact</button><button>Privacy</button></div><p className="copyright">© 2026 Flashcard AI</p></footer> }
+
+export default App;
