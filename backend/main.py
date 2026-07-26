@@ -6,11 +6,13 @@ import os
 import json
 from dotenv import load_dotenv
 from groq import Groq
-
+from database import engine, get_db, Base
+from models import Deck, Card
 load_dotenv()
-
+load_dotenv()
+print("DEBUG - Connecting to:", os.getenv("DATABASE_URL"))
 app = FastAPI()
-
+Base.metadata.create_all(bind=engine)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],

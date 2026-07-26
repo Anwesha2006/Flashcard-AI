@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState,useEffect } from 'react';
 import './App.css';
 
 type Page = 'home' | 'upload' | 'decks' | 'review' | 'login' | 'signup' | 'profile';
@@ -18,6 +18,7 @@ function App() {
   const [fullText, setFullText] = useState<string>('');
 const [flashcards, setFlashcards] = useState<{question: string; answer: string}[]>([]);
 const [generating, setGenerating] = useState(false);
+const [selectedDeckId, setSelectedDeckId] = useState<number | null>(null);
   const go = (next: Page) => { setPage(next); setMenuOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const authenticate = () => { setLoggedIn(true); go('decks'); };
   const handleupload = async () => {
@@ -47,8 +48,7 @@ const handleGenerate = async () => {
       body: JSON.stringify({ text: fullText }),
     });
     const data = await res.json();
-    if (data.flashcards) {
-      setFlashcards(data.flashcards);
+    if (data.deck_id) {
       go('decks');
     } else {
       console.error('Generation failed:', data);
@@ -79,8 +79,8 @@ const handleGenerate = async () => {
 
     {page === 'home' && <Home go={go} />}
     {page === 'upload' && <Upload go={go} file={file} setFile={setFile} extractedText={extractedText} handleupload={handleupload} handleGenerate={handleGenerate} generating={generating} />}
-    {page === 'decks' && <Decks go={go} flashcards={flashcards} />}
-   {page === 'review' && <Review flashcards={flashcards} />}
+    {page === 'decks' && <Decks go={go} setSelectedDeckId={setSelectedDeckId} />}
+{page === 'review' && <Review deckId={selectedDeckId} />}
     {(page === 'login' || page === 'signup') && <Auth mode={page} onAuth={authenticate} go={go} />}
     {page === 'profile' && <Profile onLogout={() => { setLoggedIn(false); go('home'); }} />}
   </div>;
@@ -142,21 +142,39 @@ function Upload({ go, file, setFile, extractedText, handleupload, handleGenerate
     </div>
   </PageFrame>
 }
-function Decks({ go, flashcards }: { go: (p: Page) => void; flashcards: {question: string; answer: string}[] }) {
+function Decks({ go, setSelectedDeckId }: { go: (p: Page) => void; setSelectedDeckId: (id: number) => void }) {
+  const [decks, setDecks] = useState<{id: number; title: string; card_count: number}[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("http://localhost:8000/decks")
+      .then(res => res.json())
+      .then(data => setDecks(data))
+      .catch(err => console.error('Failed to load decks:', err))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const openDeck = (id: number) => {
+    setSelectedDeckId(id);
+    go('review');
+  };
+
   return <PageFrame eyebrow="YOUR LIBRARY" title={<>Your learning <span>space.</span></>}>
     <div className="deck-toolbar">
-      <p>{flashcards.length > 0 ? `1 deck · ${flashcards.length} cards ready to review` : 'No decks yet'}</p>
+      <p>{decks.length > 0 ? `${decks.length} deck${decks.length > 1 ? 's' : ''} · ${decks.reduce((sum, d) => sum + d.card_count, 0)} cards total` : 'No decks yet'}</p>
       <button className="gradient-button small" onClick={() => go('upload')}>+ New deck</button>
     </div>
 
-    {flashcards.length > 0 ? (
+    {loading ? <p>Loading decks...</p> : decks.length > 0 ? (
       <div className="deck-grid">
-        <article className="deck-card violet">
-          <div className="deck-card-top"><span className="deck-icon">◌</span><button>•••</button></div>
-          <h3>Generated Deck</h3>
-          <p>{flashcards.length} flashcards</p>
-          <button onClick={() => go('review')}>Study now <span>→</span></button>
-        </article>
+        {decks.map(d => (
+          <article className="deck-card violet" key={d.id}>
+            <div className="deck-card-top"><span className="deck-icon">◌</span><button>•••</button></div>
+            <h3>{d.title}</h3>
+            <p>{d.card_count} flashcards</p>
+            <button onClick={() => openDeck(d.id)}>Study now <span>→</span></button>
+          </article>
+        ))}
       </div>
     ) : (
       <p>Upload a PDF to generate your first deck.</p>
@@ -164,27 +182,41 @@ function Decks({ go, flashcards }: { go: (p: Page) => void; flashcards: {questio
   </PageFrame>
 }
 
-function Review({ flashcards }: { flashcards: {question: string; answer: string}[] }) {
+function Review({ deckId }: { deckId: number | null }) {
   const [flipped, setFlipped] = useState(false);
   const [index, setIndex] = useState(0);
+  const [cards, setCards] = useState<{id: number; question: string; answer: string}[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  if (flashcards.length === 0) {
+  useEffect(() => {
+    if (!deckId) { setLoading(false); return; }
+    fetch(`http://localhost:8000/decks/${deckId}/cards`)
+      .then(res => res.json())
+      .then(data => setCards(data))
+      .catch(err => console.error('Failed to load cards:', err))
+      .finally(() => setLoading(false));
+  }, [deckId]);
+
+  if (loading) {
+    return <PageFrame eyebrow="REVIEW MODE" title={<>Loading <span>cards...</span></>}><p>One moment...</p></PageFrame>;
+  }
+
+  if (!deckId || cards.length === 0) {
     return <PageFrame eyebrow="REVIEW MODE" title={<>No cards <span>yet.</span></>}>
-      <p>Generate a deck first to start reviewing.</p>
+      <p>Go to My Decks and pick a deck to study.</p>
     </PageFrame>;
   }
 
-  const card = flashcards[index];
+  const card = cards[index];
 
   const next = () => {
     setFlipped(false);
-    setIndex((i) => (i + 1) % flashcards.length);
+    setIndex((i) => (i + 1) % cards.length);
   };
 
   return <PageFrame eyebrow="REVIEW MODE" title={<>Keep the answer <span>in mind.</span></>}>
     <div className="review-meta">
-      <span>Generated Deck</span>
-      <span>{index + 1} of {flashcards.length}</span>
+      <span>{index + 1} of {cards.length}</span>
     </div>
     <button className={'study-card ' + (flipped ? 'flipped' : '')} onClick={() => setFlipped(!flipped)}>
       <small>{flipped ? 'ANSWER' : 'QUESTION'}</small>
