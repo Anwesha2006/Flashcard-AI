@@ -15,19 +15,50 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const[file,setFile]= useState<File|null>(null);
   const[extractedText,setExtractedText]=useState<string>('');
+  const [fullText, setFullText] = useState<string>('');
+const [flashcards, setFlashcards] = useState<{question: string; answer: string}[]>([]);
+const [generating, setGenerating] = useState(false);
   const go = (next: Page) => { setPage(next); setMenuOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const authenticate = () => { setLoggedIn(true); go('decks'); };
-  const handleupload = async()=>{
-    if (!file) return;
-    const formdata= new FormData();
-    formdata.append('file',file);
-    const res=await fetch("http://localhost:8000/upload-pdf",{
+  const handleupload = async () => {
+  if (!file) return;
+  const formdata = new FormData();
+  formdata.append('file', file);
+  try {
+    const res = await fetch("http://localhost:8000/upload-pdf", {
       method: "POST",
       body: formdata
     });
-    const data=await res.json();
+    const data = await res.json();
     setExtractedText(data.text_preview);
-  };
+    setFullText(data.full_text);   // ← new: save the full text for later
+  } catch (err) {
+    console.error('Upload failed:', err);
+    setExtractedText('Upload failed — check that the backend is running.');
+  }
+};
+const handleGenerate = async () => {
+  if (!fullText) return;
+  setGenerating(true);
+  try {
+    const res = await fetch("http://localhost:8000/generate-flashcards", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: fullText }),
+    });
+    const data = await res.json();
+    if (data.flashcards) {
+      setFlashcards(data.flashcards);
+      go('decks');
+    } else {
+      console.error('Generation failed:', data);
+    }
+  } catch (err) {
+    console.error('Request failed:', err);
+  } finally {
+    setGenerating(false);
+  }
+};
   const nav = [
     ['Home', 'home'], ['Upload', 'upload'], ['My Decks', 'decks'], ['Review', 'review'],
   ] as [string, Page][];
@@ -47,9 +78,9 @@ function App() {
     </header>
 
     {page === 'home' && <Home go={go} />}
-    {page === 'upload' && <Upload go={go} file={file} setFile={setFile} extractedText={extractedText} handleupload={handleupload} />}
-    {page === 'decks' && <Decks go={go} />}
-    {page === 'review' && <Review />}
+    {page === 'upload' && <Upload go={go} file={file} setFile={setFile} extractedText={extractedText} handleupload={handleupload} handleGenerate={handleGenerate} generating={generating} />}
+    {page === 'decks' && <Decks go={go} flashcards={flashcards} />}
+   {page === 'review' && <Review flashcards={flashcards} />}
     {(page === 'login' || page === 'signup') && <Auth mode={page} onAuth={authenticate} go={go} />}
     {page === 'profile' && <Profile onLogout={() => { setLoggedIn(false); go('home'); }} />}
   </div>;
@@ -75,12 +106,14 @@ function Step({ n, icon, title, text }: {n:string;icon:string;title:string;text:
 
 function Pricing({ go }: { go: (p: Page) => void }) { return <section className="pricing" id="pricing"><div className="section-kicker">Simple pricing</div><h2>Start learning today.</h2><p className="section-copy">Choose a plan that fits the way you study.</p><div className="price-grid"><article className="price-card"><h3>Starter</h3><p>Everything you need to begin.</p><div className="price"><b>$0</b><span>/ month</span></div><button className="outline-button" onClick={() => go('signup')}>Get started free</button><ul><li>50 AI flashcards / month</li><li>3 active decks</li><li>Basic review mode</li></ul></article><article className="price-card featured"><span className="popular">Most popular</span><h3>Scholar</h3><p>For students who want more.</p><div className="price"><b>$8</b><span>/ month</span></div><button className="light-button" onClick={() => go('signup')}>Start free trial</button><ul><li>Unlimited AI flashcards</li><li>Unlimited decks</li><li>Smart spaced repetition</li></ul></article><article className="price-card"><h3>Pro</h3><p>For ambitious learners.</p><div className="price"><b>$14</b><span>/ month</span></div><button className="outline-button" onClick={() => go('signup')}>Get started</button><ul><li>Everything in Scholar</li><li>PDF & slide uploads</li><li>Priority AI generation</li></ul></article></div></section> }
 
-function Upload({ go, file, setFile, extractedText, handleupload }: {
+function Upload({ go, file, setFile, extractedText, handleupload, handleGenerate, generating }: {
   go: (p: Page) => void;
   file: File | null;
   setFile: (f: File | null) => void;
   extractedText: string;
   handleupload: () => void;
+  handleGenerate: () => void;
+  generating: boolean;
 }) {
   return <PageFrame eyebrow="CREATE A NEW DECK" title={<>Make flashcards from <span>anything.</span></>}>
     <div className="upload-grid">
@@ -91,11 +124,14 @@ function Upload({ go, file, setFile, extractedText, handleupload }: {
 
         <input type="file" accept=".pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
         <button className="outline-button" onClick={handleupload}>Upload</button>
-        <p>{extractedText}</p>
+        {file && <p style={{ fontSize: '0.85rem', opacity: 0.7 }}>Selected: {file.name}</p>}
+        {extractedText && <p>{extractedText}</p>}
 
         <div className="or"><span/>or<span/></div>
         <textarea placeholder="Paste your notes or type a topic to get started..."/>
-        <button className="gradient-button" onClick={() => go('decks')}>✦&nbsp; Generate flashcards</button>
+        <button className="gradient-button" onClick={handleGenerate} disabled={generating}>
+          {generating ? 'Generating...' : <>✦&nbsp; Generate flashcards</>}
+        </button>
       </section>
       <aside className="upload-aside">
         <h3>How it works</h3>
@@ -106,10 +142,63 @@ function Upload({ go, file, setFile, extractedText, handleupload }: {
     </div>
   </PageFrame>
 }
-function Decks({go}:{go:(p:Page)=>void}) { return <PageFrame eyebrow="YOUR LIBRARY" title={<>Your learning <span>space.</span></>}><div className="deck-toolbar"><p>3 decks · 84 cards ready to review</p><button className="gradient-button small" onClick={()=>go('upload')}>+ New deck</button></div><div className="deck-grid">{deckData.map(d=><article className={`deck-card ${d.color}`} key={d.title}><div className="deck-card-top"><span className="deck-icon">{d.icon}</span><button>•••</button></div><h3>{d.title}</h3><p>{d.count} flashcards</p><button onClick={()=>go('review')}>Study now <span>→</span></button></article>)}</div></PageFrame> }
+function Decks({ go, flashcards }: { go: (p: Page) => void; flashcards: {question: string; answer: string}[] }) {
+  return <PageFrame eyebrow="YOUR LIBRARY" title={<>Your learning <span>space.</span></>}>
+    <div className="deck-toolbar">
+      <p>{flashcards.length > 0 ? `1 deck · ${flashcards.length} cards ready to review` : 'No decks yet'}</p>
+      <button className="gradient-button small" onClick={() => go('upload')}>+ New deck</button>
+    </div>
 
-function Review() { const [flipped,setFlipped]=useState(false); return <PageFrame eyebrow="REVIEW MODE" title={<>Keep the answer <span>in mind.</span></>}><div className="review-meta"><span>Psychology 101</span><span>7 of 24</span></div><button className={'study-card '+(flipped?'flipped':'')} onClick={()=>setFlipped(!flipped)}><small>{flipped?'ANSWER':'QUESTION'}</small><strong>{flipped?'A learning process in which a neutral stimulus becomes associated with a meaningful stimulus.':'What is classical conditioning?'}</strong><em>Click the card to {flipped?'see question':'reveal answer'}</em></button><div className="review-actions"><button className="again">↻ Again</button><button className="hard">Hard</button><button className="good">✓ Good</button><button className="easy">✦ Easy</button></div></PageFrame> }
+    {flashcards.length > 0 ? (
+      <div className="deck-grid">
+        <article className="deck-card violet">
+          <div className="deck-card-top"><span className="deck-icon">◌</span><button>•••</button></div>
+          <h3>Generated Deck</h3>
+          <p>{flashcards.length} flashcards</p>
+          <button onClick={() => go('review')}>Study now <span>→</span></button>
+        </article>
+      </div>
+    ) : (
+      <p>Upload a PDF to generate your first deck.</p>
+    )}
+  </PageFrame>
+}
 
+function Review({ flashcards }: { flashcards: {question: string; answer: string}[] }) {
+  const [flipped, setFlipped] = useState(false);
+  const [index, setIndex] = useState(0);
+
+  if (flashcards.length === 0) {
+    return <PageFrame eyebrow="REVIEW MODE" title={<>No cards <span>yet.</span></>}>
+      <p>Generate a deck first to start reviewing.</p>
+    </PageFrame>;
+  }
+
+  const card = flashcards[index];
+
+  const next = () => {
+    setFlipped(false);
+    setIndex((i) => (i + 1) % flashcards.length);
+  };
+
+  return <PageFrame eyebrow="REVIEW MODE" title={<>Keep the answer <span>in mind.</span></>}>
+    <div className="review-meta">
+      <span>Generated Deck</span>
+      <span>{index + 1} of {flashcards.length}</span>
+    </div>
+    <button className={'study-card ' + (flipped ? 'flipped' : '')} onClick={() => setFlipped(!flipped)}>
+      <small>{flipped ? 'ANSWER' : 'QUESTION'}</small>
+      <strong>{flipped ? card.answer : card.question}</strong>
+      <em>Click the card to {flipped ? 'see question' : 'reveal answer'}</em>
+    </button>
+    <div className="review-actions">
+      <button className="again" onClick={next}>↻ Again</button>
+      <button className="hard" onClick={next}>Hard</button>
+      <button className="good" onClick={next}>✓ Good</button>
+      <button className="easy" onClick={next}>✦ Easy</button>
+    </div>
+  </PageFrame>
+}
 function Auth({mode,onAuth,go}:{mode:'login'|'signup';onAuth:()=>void;go:(p:Page)=>void}) { const signup=mode==='signup'; return <main className="auth-page"><div className="auth-panel"><div className="eyebrow">✦ &nbsp; WELCOME TO FLASHCARD AI</div><h1>{signup?'Start learning smarter.':'Welcome back.'}</h1><p>{signup?'Create your free account and turn study time into progress.':'Pick up right where you left off.'}</p><form onSubmit={e=>{e.preventDefault();onAuth();}}>{signup&&<label>Full name<input placeholder="Alex Morgan"/></label>}<label>Email<input type="email" placeholder="you@example.com"/></label><label>Password<input type="password" placeholder="••••••••"/></label><button className="gradient-button" type="submit">{signup?'Create free account':'Log in'} <span>→</span></button></form><p className="switch-auth">{signup?'Already have an account?':'New to Flashcard AI?'} <button onClick={()=>go(signup?'login':'signup')}>{signup?'Log in':'Sign up free'}</button></p></div></main> }
 
 function Profile({onLogout}:{onLogout:()=>void}) { return <PageFrame eyebrow="YOUR PROFILE" title={<>Hello, <span>Alex.</span></>}><div className="profile-layout"><section className="profile-card"><div className="large-avatar">AM</div><h2>Alex Morgan</h2><p>alex@example.com</p><hr/><div><b>Scholar plan</b><span>Active</span></div><button className="outline-button" onClick={onLogout}>Log out</button></section><section className="stats"><article><b>84</b><span>Cards created</span></article><article><b>12</b><span>Day streak</span></article><article><b>6.4h</b><span>Study time</span></article></section></div></PageFrame> }
